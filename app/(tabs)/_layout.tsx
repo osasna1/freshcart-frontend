@@ -4,7 +4,18 @@ import { Ionicons } from "@expo/vector-icons";
 
 export default function TabsLayout() {
   return (
-    <Tabs screenOptions={{ headerShown: false }}>
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: "#1a7a2e",
+        tabBarInactiveTintColor: "#999",
+        tabBarStyle: {
+          borderTopWidth: 1,
+          borderTopColor: "#f0f0f0",
+          paddingBottom: 4,
+        },
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
@@ -14,7 +25,6 @@ export default function TabsLayout() {
           ),
         }}
       />
-
       <Tabs.Screen
         name="products"
         options={{
@@ -24,7 +34,6 @@ export default function TabsLayout() {
           ),
         }}
       />
-
       <Tabs.Screen
         name="orders"
         options={{
@@ -34,7 +43,6 @@ export default function TabsLayout() {
           ),
         }}
       />
-
       <Tabs.Screen
         name="explore"
         options={{
@@ -45,9 +53,11 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* ✅ Hide these from the tab bar (but keep routes working) */}
+      {/* ✅ Hide these from the tab bar */}
       <Tabs.Screen name="cart" options={{ href: null }} />
       <Tabs.Screen name="checkout" options={{ href: null }} />
+      <Tabs.Screen name="profile" options={{ href: null }} />
+      <Tabs.Screen name="stores" options={{ href: null }} />
     </Tabs>
   );
 }

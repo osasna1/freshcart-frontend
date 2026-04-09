@@ -1,4 +1,4 @@
-// Toronto and Oshawa postal code prefixes (first 3 characters)
+// Toronto, Oshawa and Barrie postal code prefixes (first 3 characters)
 export const TORONTO_CODES = [
   "M1B", "M1C", "M1E", "M1G", "M1H", "M1J", "M1K", "M1L",
   "M1M", "M1N", "M1P", "M1R", "M1S", "M1T", "M1V", "M1W",
@@ -19,19 +19,25 @@ export const OSHAWA_CODES = [
   "L1G", "L1H", "L1J", "L1K", "L1L",
 ];
 
-export const ALL_DELIVERY_CODES = [...TORONTO_CODES, ...OSHAWA_CODES];
+export const BARRIE_CODES = [
+  "L4M", "L4N", "L9J",
+];
 
-export type DeliveryCity = "Toronto" | "Oshawa" | null;
+export const ALL_DELIVERY_CODES = [
+  ...TORONTO_CODES,
+  ...OSHAWA_CODES,
+  ...BARRIE_CODES,
+];
+
+export type DeliveryCity = "Toronto" | "Oshawa" | "Barrie" | null;
 
 export function checkDeliveryZone(postalCode: string): {
   allowed: boolean;
   city: DeliveryCity;
   message: string;
 } {
-  // Clean and uppercase the postal code
   const cleaned = postalCode.replace(/\s/g, "").toUpperCase();
 
-  // Must be at least 3 characters
   if (cleaned.length < 3) {
     return {
       allowed: false,
@@ -58,9 +64,17 @@ export function checkDeliveryZone(postalCode: string): {
     };
   }
 
+  if (BARRIE_CODES.includes(prefix)) {
+    return {
+      allowed: true,
+      city: "Barrie",
+      message: "✅ Great! We deliver to your area in Barrie.",
+    };
+  }
+
   return {
     allowed: false,
     city: null,
-    message: "❌ Sorry, we currently only deliver in Toronto and Oshawa.",
+    message: "❌ Sorry, we currently only deliver in Toronto, Oshawa and Barrie.",
   };
 }

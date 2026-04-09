@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   Pressable,
   Alert,
   ScrollView,
-  FlatList,
   Platform,
   ActivityIndicator,
   Image,
@@ -22,19 +21,20 @@ import { CartStore } from "../../lib/cartStore";
 const TOKEN_KEY = "freshcart_token";
 const CUSTOMER_PHONE_KEY = "freshcart_customer_phone";
 const INTERAC_EMAIL = "mathewidemudia7@gmail.com";
+const SERVICE_FEE = 2.99;
+const SELECTED_STORE_KEY = "freshcart_selected_store";
+const SELECTED_CITY_KEY = "freshcart_selected_city";
 
-// ✅ Clean filenames — all renamed properly
-const STORES = [
-  { name: "Any Store", emoji: "🏪", logo: null },
-  { name: "Walmart", emoji: "🛒", logo: require("../../assets/images/walmart.png") },
-  { name: "No Frills", emoji: "🥬", logo: require("../../assets/images/nofrills.png") },
-  { name: "Metro", emoji: "🏙️", logo: require("../../assets/images/metro.png") },
-  { name: "LCBO", emoji: "🍷", logo: require("../../assets/images/lcbo.png") },
-  { name: "Dollarama", emoji: "💛", logo: require("../../assets/images/dollarama.png") },
-  { name: "Costco", emoji: "🏢", logo: require("../../assets/images/costco.png") },
-  { name: "FreshCo", emoji: "🛒", logo: require("../../assets/images/freshco.png") },
-  { name: "Food Basics", emoji: "🛒", logo: require("../../assets/images/foodbasic.png") },
-];
+const STORE_LOGOS: Record<string, any> = {
+  "Walmart": require("../../assets/images/walmart.png"),
+  "No Frills": require("../../assets/images/nofrills.png"),
+  "Metro": require("../../assets/images/metro.png"),
+  "LCBO": require("../../assets/images/lcbo.png"),
+  "Dollarama": require("../../assets/images/dollarama.png"),
+  "Costco": require("../../assets/images/costco.png"),
+  "FreshCo": require("../../assets/images/freshco.png"),
+  "Food Basics": require("../../assets/images/foodbasic.png"),
+};
 
 function safeJsonParse<T>(value: unknown, fallback: T): T {
   try {
@@ -66,8 +66,10 @@ export default function CheckoutScreen() {
     () => cartItems.reduce((sum, item) => sum + Number(item.lineTotal), 0),
     [cartItems]
   );
-  const deliveryFee = subtotal >= 50 ? 0 : 5;
-  const total = subtotal + deliveryFee;
+
+  const [isFirstOrder, setIsFirstOrder] = useState(false);
+  const deliveryFee = isFirstOrder ? 0 : (subtotal >= 50 ? 0 : 5);
+  const total = subtotal + deliveryFee + SERVICE_FEE;
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
@@ -82,11 +84,40 @@ export default function CheckoutScreen() {
   const [orderNumber, setOrderNumber] = useState("");
   const [payment, setPayment] = useState<"cash" | "etransfer" | "card" | null>(null);
   const [interacConfirmed, setInteracConfirmed] = useState(false);
-  const [selectedStore, setSelectedStore] = useState("Any Store");
   const [shoppingList, setShoppingList] = useState("");
+
+  // ✅ Store info loaded from storage
+  const [selectedStoreName, setSelectedStoreName] = useState("");
+  const [selectedStoreId, setSelectedStoreId] = useState("");
+  const [selectedCity, setSelectedCity] = useState("");
 
   const DELIVERY_OPTIONS = ["ASAP", "1 hour", "2 hours"] as const;
   const [deliveryTime, setDeliveryTime] = useState<(typeof DELIVERY_OPTIONS)[number]>("ASAP");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        // ✅ Load selected store from storage
+        const storedStore = await storage.getItem(SELECTED_STORE_KEY);
+        const storedCity = await storage.getItem(SELECTED_CITY_KEY);
+        if (storedStore) {
+          const store = JSON.parse(storedStore);
+          setSelectedStoreName(store.name || "");
+          setSelectedStoreId(store.id || "");
+        }
+        if (storedCity) setSelectedCity(storedCity);
+
+        // ✅ Check first order
+        const token = await storage.getItem(TOKEN_KEY);
+        if (!token) return;
+        const res = await fetch(`${API_BASE_URL}/orders/check-first`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (data.ok) setIsFirstOrder(data.isFirstOrder);
+      } catch {}
+    })();
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -99,7 +130,6 @@ export default function CheckoutScreen() {
 
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
 
-  // ✅ Button only active when ALL required fields are filled
   const isFormReady =
     fullName.trim().length > 0 &&
     phone.trim().length > 0 &&
@@ -144,7 +174,7 @@ export default function CheckoutScreen() {
     }
     const zoneCheck = checkDeliveryZone(postalCode);
     if (!zoneCheck.allowed) {
-      notify("Outside delivery zone", "Sorry, we currently only deliver in Toronto and Oshawa.");
+      notify("Outside delivery zone", "Sorry, we currently only deliver in Toronto, Oshawa and Barrie.");
       return false;
     }
     if (!payment) {
@@ -175,7 +205,9 @@ export default function CheckoutScreen() {
           deliveryInstructions: deliveryInstructions.trim(),
           deliveryTime,
           paymentMethod: payment,
-          storeName: selectedStore,
+          storeName: selectedStoreName || "Any Store",
+          storeId: selectedStoreId || null,
+          city: selectedCity || city.trim(),
           shoppingList: shoppingList.trim(),
           items: cartItems.map((item) => ({ productId: String(item.id), qty: Number(item.qty) })),
         }),
@@ -226,7 +258,9 @@ export default function CheckoutScreen() {
           deliveryTime,
           paymentMethod: "card",
           paymentIntentId: intentData.paymentIntentId,
-          storeName: selectedStore,
+          storeName: selectedStoreName || "Any Store",
+          storeId: selectedStoreId || null,
+          city: selectedCity || city.trim(),
           shoppingList: shoppingList.trim(),
           items: cartItems.map((item) => ({ productId: String(item.id), qty: Number(item.qty) })),
         }),
@@ -246,9 +280,8 @@ export default function CheckoutScreen() {
     else placeOrderDirect();
   };
 
-  // ─── SUCCESS SCREEN ───
   if (orderSuccess) {
-    const store = STORES.find(s => s.name === selectedStore);
+    const storeLogo = STORE_LOGOS[selectedStoreName] || null;
     return (
       <View style={styles.successContainer}>
         <View style={styles.successIconWrap}>
@@ -260,21 +293,28 @@ export default function CheckoutScreen() {
           <Text style={styles.successOrderLabel}>Order Number</Text>
           <Text style={styles.successOrderNum}>{orderNumber}</Text>
         </View>
-        {selectedStore !== "Any Store" && (
+        {selectedStoreName ? (
           <View style={styles.storeBadge}>
-            {store?.logo ? <Image source={store.logo} style={styles.storeBadgeLogo} resizeMode="contain" /> : <Text>{store?.emoji}</Text>}
-            <Text style={styles.storeBadgeText}>Shopping from {selectedStore}</Text>
+            {storeLogo ? (
+              <Image source={storeLogo} style={styles.storeBadgeLogo} resizeMode="contain" />
+            ) : (
+              <Text style={styles.storeBadgeEmoji}>🏪</Text>
+            )}
+            <View>
+              <Text style={styles.storeBadgeText}>Shopping from {selectedStoreName}</Text>
+              {selectedCity ? <Text style={styles.storeBadgeCity}>{selectedCity}</Text> : null}
+            </View>
           </View>
-        )}
+        ) : null}
         {payment === "etransfer" && (
           <View style={styles.interacReminder}>
-            <Text style={styles.interacReminderTitle}>📧 Send E-Transfer Now</Text>
+            <Text style={styles.interacReminderTitle}>Send E-Transfer Now</Text>
             <Text style={styles.interacReminderText}>Amount: <Text style={styles.interacBold}>${total.toFixed(2)}</Text></Text>
             <Text style={styles.interacReminderText}>To: <Text style={styles.interacBold}>{INTERAC_EMAIL}</Text></Text>
             <Text style={styles.interacReminderSub}>Order confirmed once payment is received.</Text>
           </View>
         )}
-        <Text style={styles.successNote}>🚚 Estimated delivery: {deliveryTime === "ASAP" ? "30–45 min" : deliveryTime}</Text>
+        <Text style={styles.successNote}>Estimated delivery: {deliveryTime === "ASAP" ? "30-45 min" : deliveryTime}</Text>
         <Pressable style={styles.successBtn} onPress={() => router.replace("/(tabs)/orders")}>
           <Text style={styles.successBtnText}>View My Orders</Text>
         </Pressable>
@@ -287,8 +327,6 @@ export default function CheckoutScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-
-      {/* ─── HEADER ─── */}
       <View style={styles.header}>
         <Pressable style={styles.backTopBtn} onPress={() => router.replace("/(tabs)/cart")}>
           <Text style={styles.backTopText}>← Back</Text>
@@ -299,7 +337,35 @@ export default function CheckoutScreen() {
         </View>
       </View>
 
-      {/* ─── SECTION: CUSTOMER INFO ─── */}
+      {isFirstOrder && (
+        <View style={styles.firstOrderBanner}>
+          <Text style={styles.firstOrderText}>Free delivery on your first order!</Text>
+        </View>
+      )}
+
+      {/* ✅ Store Badge — replaces the store picker */}
+      {selectedStoreName ? (
+        <View style={styles.selectedStoreBanner}>
+          {STORE_LOGOS[selectedStoreName] ? (
+            <Image source={STORE_LOGOS[selectedStoreName]} style={styles.selectedStoreLogo} resizeMode="contain" />
+          ) : (
+            <Text style={styles.selectedStoreEmoji}>🏪</Text>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.selectedStoreLabel}>Shopping from</Text>
+            <Text style={styles.selectedStoreName}>{selectedStoreName}</Text>
+            {selectedCity ? <Text style={styles.selectedStoreCity}>📍 {selectedCity}</Text> : null}
+          </View>
+          <Pressable
+            style={styles.changeStoreBtn}
+            onPress={() => router.replace("/(tabs)/")}
+          >
+            <Text style={styles.changeStoreBtnText}>Change</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* ─── YOUR INFO ─── */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionIcon}>👤</Text>
@@ -315,50 +381,25 @@ export default function CheckoutScreen() {
         </View>
       </View>
 
-      {/* ─── SECTION: PREFERRED STORE ─── */}
+      {/* ─── SHOPPING LIST ─── */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionIcon}>🏪</Text>
-          <Text style={styles.sectionTitle}>Preferred Store</Text>
+          <Text style={styles.sectionIcon}>📝</Text>
+          <Text style={styles.sectionTitle}>Shopping List <Text style={styles.optionalTag}>(optional)</Text></Text>
         </View>
-        <Text style={styles.sectionHint}>Swipe to see all stores →</Text>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={STORES}
-          keyExtractor={(item) => item.name}
-          contentContainerStyle={styles.storeList}
-          renderItem={({ item: store }) => {
-            const active = selectedStore === store.name;
-            return (
-              <Pressable style={[styles.storeChip, active && styles.storeChipActive]} onPress={() => setSelectedStore(store.name)}>
-                {store.logo ? (
-                  <Image source={store.logo} style={styles.storeLogo} resizeMode="contain" />
-                ) : (
-                  <Text style={styles.storeEmoji}>{store.emoji}</Text>
-                )}
-                <Text style={[styles.storeName, active && styles.storeNameActive]}>{store.name}</Text>
-                {active && <View style={styles.storeCheck}><Text style={styles.storeCheckText}>✓</Text></View>}
-              </Pressable>
-            );
-          }}
+        <TextInput
+          style={[styles.input, { height: 100 }]}
+          placeholder={"e.g.\n2x whole milk\n1x bread"}
+          placeholderTextColor="#bbb"
+          value={shoppingList}
+          onChangeText={setShoppingList}
+          multiline
+          textAlignVertical="top"
         />
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Shopping List <Text style={styles.optionalTag}>(optional)</Text></Text>
-          <TextInput
-            style={[styles.input, { height: 100 }]}
-            placeholder={"e.g.\n2x whole milk\n1x bread"}
-            placeholderTextColor="#bbb"
-            value={shoppingList}
-            onChangeText={setShoppingList}
-            multiline
-            textAlignVertical="top"
-          />
-          <Text style={styles.hint}>💡 List items you need — we'll buy exactly what you ask for!</Text>
-        </View>
+        <Text style={styles.hint}>List any extra items you need — we will buy exactly what you ask for!</Text>
       </View>
 
-      {/* ─── SECTION: DELIVERY ADDRESS ─── */}
+      {/* ─── DELIVERY ADDRESS ─── */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionIcon}>📍</Text>
@@ -370,7 +411,7 @@ export default function CheckoutScreen() {
         </View>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>City</Text>
-          <TextInput style={styles.input} placeholder="e.g. Toronto or Oshawa" placeholderTextColor="#bbb" value={city} onChangeText={setCity} />
+          <TextInput style={styles.input} placeholder="e.g. Toronto, Oshawa or Barrie" placeholderTextColor="#bbb" value={city} onChangeText={setCity} />
         </View>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Postal Code</Text>
@@ -390,7 +431,12 @@ export default function CheckoutScreen() {
           )}
           {postalValid === false && (
             <View style={styles.zoneInfoBox}>
-              <Text style={styles.zoneInfoText}>📍 We deliver to:{"\n"}• Toronto (M postal codes){"\n"}• Oshawa (L1G, L1H, L1J, L1K, L1L)</Text>
+              <Text style={styles.zoneInfoText}>
+                We deliver to:{"\n"}
+                • Toronto (M postal codes){"\n"}
+                • Oshawa (L1G, L1H, L1J, L1K, L1L){"\n"}
+                • Barrie (L4M, L4N, L9J)
+              </Text>
             </View>
           )}
         </View>
@@ -413,13 +459,13 @@ export default function CheckoutScreen() {
         </View>
       </View>
 
-      {/* ─── SECTION: PAYMENT ─── */}
+      {/* ─── PAYMENT METHOD ─── */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionIcon}>💳</Text>
           <Text style={styles.sectionTitle}>Payment Method</Text>
         </View>
-        {!payment && <Text style={styles.paymentHint}>⚠️ Please select a payment method</Text>}
+        {!payment && <Text style={styles.paymentHint}>Please select a payment method</Text>}
         <View style={styles.paymentOptions}>
           <Pressable style={[styles.paymentCard, payment === "cash" && styles.paymentCardActive]} onPress={() => { setPayment("cash"); setInteracConfirmed(false); }}>
             <Text style={styles.paymentCardIcon}>💵</Text>
@@ -440,11 +486,11 @@ export default function CheckoutScreen() {
           )}
         </View>
         {Platform.OS === "web" && (
-          <View style={styles.webNote}><Text style={styles.webNoteText}>💳 Card payments available on the mobile app</Text></View>
+          <View style={styles.webNote}><Text style={styles.webNoteText}>Card payments available on the mobile app</Text></View>
         )}
         {payment === "etransfer" && (
           <View style={styles.interacBox}>
-            <Text style={styles.interacTitle}>📧 Interac e-Transfer Details</Text>
+            <Text style={styles.interacTitle}>Interac e-Transfer Details</Text>
             <Text style={styles.interacText}>Send <Text style={styles.interacBold}>${total.toFixed(2)}</Text> to:</Text>
             <View style={styles.interacEmailBox}><Text style={styles.interacEmail}>{INTERAC_EMAIL}</Text></View>
             <Text style={styles.interacNote}>Use your order number as the message. Order confirmed once payment received.</Text>
@@ -458,20 +504,12 @@ export default function CheckoutScreen() {
         )}
       </View>
 
-      {/* ─── SECTION: ORDER SUMMARY ─── */}
+      {/* ─── ORDER SUMMARY ─── */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionIcon}>🧾</Text>
           <Text style={styles.sectionTitle}>Order Summary</Text>
         </View>
-        {selectedStore !== "Any Store" && (
-          <View style={styles.selectedStoreBadge}>
-            {STORES.find(s => s.name === selectedStore)?.logo ? (
-              <Image source={STORES.find(s => s.name === selectedStore)!.logo!} style={styles.summaryStoreLogo} resizeMode="contain" />
-            ) : null}
-            <Text style={styles.selectedStoreName}>Shopping from {selectedStore}</Text>
-          </View>
-        )}
         <View style={styles.summaryRows}>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Subtotal</Text>
@@ -480,18 +518,30 @@ export default function CheckoutScreen() {
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Delivery Fee</Text>
             <Text style={[styles.summaryValue, deliveryFee === 0 && { color: "#1a7a2e" }]}>
-              {deliveryFee === 0 ? "🎉 FREE" : `$${deliveryFee.toFixed(2)}`}
+              {deliveryFee === 0 ? "FREE" : `$${deliveryFee.toFixed(2)}`}
             </Text>
           </View>
-          {deliveryFee === 0 && <Text style={styles.freeNote}>Free delivery on orders over $50!</Text>}
+          {isFirstOrder && <Text style={styles.freeNote}>Free delivery on your first order!</Text>}
+          {!isFirstOrder && subtotal >= 50 && <Text style={styles.freeNote}>Free delivery on orders over $50!</Text>}
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Service Fee</Text>
+            <Text style={styles.summaryValue}>${SERVICE_FEE.toFixed(2)}</Text>
+          </View>
+          <View style={styles.serviceFeeNote}>
+            <Text style={styles.serviceFeeNoteText}>Covers payment processing and app maintenance</Text>
+          </View>
           <View style={[styles.summaryRow, styles.totalRow]}>
             <Text style={styles.totalLabel}>Total</Text>
             <Text style={styles.totalValue}>${total.toFixed(2)}</Text>
           </View>
         </View>
+        <View style={styles.priceDisclaimer}>
+          <Text style={styles.priceDisclaimerText}>
+            Prices are approximate and may vary slightly in store. Final price will be confirmed before delivery.
+          </Text>
+        </View>
       </View>
 
-      {/* ─── FOOTER ─── */}
       <View style={styles.footer}>
         <Pressable
           style={[styles.placeBtn, (!isFormReady || saving) && styles.placeBtnDisabled]}
@@ -503,15 +553,15 @@ export default function CheckoutScreen() {
           ) : (
             <>
               <Text style={styles.placeBtnText}>
-                {payment === "card" ? `💳 Pay $${total.toFixed(2)}` : "Place Order →"}
+                {payment === "card" ? `Pay $${total.toFixed(2)}` : "Place Order →"}
               </Text>
               {payment !== "card" && <Text style={styles.placeBtnSub}>${total.toFixed(2)} total</Text>}
             </>
           )}
         </Pressable>
-        {!payment && <Text style={styles.blockedNote}>⚠️ Select a payment method above</Text>}
-        {payment === "etransfer" && !interacConfirmed && <Text style={styles.blockedNote}>⚠️ Tick the checkbox above to confirm</Text>}
-        {postalValid === false && <Text style={styles.blockedNote}>⚠️ Postal code is outside delivery zone</Text>}
+        {!payment && <Text style={styles.blockedNote}>Select a payment method above</Text>}
+        {payment === "etransfer" && !interacConfirmed && <Text style={styles.blockedNote}>Tick the checkbox above to confirm</Text>}
+        {postalValid === false && <Text style={styles.blockedNote}>Postal code is outside delivery zone</Text>}
         <Pressable style={styles.backFooterBtn} onPress={() => router.replace("/(tabs)/cart")}>
           <Text style={styles.backFooterText}>← Back to Cart</Text>
         </Pressable>
@@ -526,24 +576,46 @@ const styles = StyleSheet.create({
     backgroundColor: "#1a7a2e", paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20,
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
   },
-  backTopBtn: { backgroundColor: "rgba(255,255,255,0.2)", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20 },
-  backTopText: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  backTopBtn: { backgroundColor: "#f5c518", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20 },
+  backTopText: { color: "#111", fontWeight: "900", fontSize: 13 },
   headerTitle: { fontSize: 20, fontWeight: "900", color: "#fff" },
-  totalPill: { backgroundColor: "rgba(255,255,255,0.25)", paddingVertical: 6, paddingHorizontal: 14, borderRadius: 20 },
-  totalPillText: { color: "#fff", fontWeight: "900", fontSize: 14 },
+  totalPill: { backgroundColor: "#f5c518", paddingVertical: 6, paddingHorizontal: 14, borderRadius: 20 },
+  totalPillText: { color: "#111", fontWeight: "900", fontSize: 14 },
+  firstOrderBanner: {
+    backgroundColor: "#dcfce7", marginHorizontal: 16, marginTop: 12,
+    borderRadius: 12, padding: 12, borderWidth: 1, borderColor: "#16a34a",
+    alignItems: "center",
+  },
+  firstOrderText: { color: "#16a34a", fontWeight: "900", fontSize: 14 },
+  selectedStoreBanner: {
+    backgroundColor: "#fff", marginHorizontal: 16, marginTop: 16,
+    borderRadius: 16, padding: 14, flexDirection: "row",
+    alignItems: "center", gap: 12,
+    borderBottomWidth: 3, borderBottomColor: "#f5c518",
+    shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
+  },
+  selectedStoreLogo: { width: 48, height: 48, borderRadius: 10 },
+  selectedStoreEmoji: { fontSize: 32 },
+  selectedStoreLabel: { fontSize: 11, color: "#999", fontWeight: "600" },
+  selectedStoreName: { fontSize: 16, fontWeight: "900", color: "#1a7a2e" },
+  selectedStoreCity: { fontSize: 12, color: "#666", fontWeight: "600", marginTop: 2 },
+  changeStoreBtn: {
+    backgroundColor: "#fffbeb", paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: 10, borderWidth: 1, borderColor: "#f5c518",
+  },
+  changeStoreBtnText: { color: "#92400e", fontWeight: "800", fontSize: 12 },
   section: {
     backgroundColor: "#fff", marginHorizontal: 16, marginTop: 16,
     borderRadius: 16, padding: 16,
     shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
+    borderBottomWidth: 3, borderBottomColor: "#f5c518",
   },
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 },
   sectionIcon: { fontSize: 18 },
   sectionTitle: { fontSize: 16, fontWeight: "900", color: "#111" },
-  sectionHint: { fontSize: 12, color: "#999", marginBottom: 10, marginTop: -8 },
-  inputGroup: { marginBottom: 12 },
-  inputRow: { flexDirection: "row", gap: 10 },
-  inputLabel: { fontSize: 13, fontWeight: "700", color: "#555", marginBottom: 6 },
   optionalTag: { fontSize: 11, color: "#aaa", fontWeight: "500" },
+  inputGroup: { marginBottom: 12 },
+  inputLabel: { fontSize: 13, fontWeight: "700", color: "#555", marginBottom: 6 },
   input: {
     borderWidth: 1.5, borderColor: "#e8e8e8", borderRadius: 12,
     paddingHorizontal: 14, paddingVertical: 12, fontSize: 15,
@@ -552,19 +624,6 @@ const styles = StyleSheet.create({
   inputValid: { borderColor: "#1a7a2e", borderWidth: 2, backgroundColor: "#f0faf4" },
   inputInvalid: { borderColor: "#ef4444", borderWidth: 2, backgroundColor: "#fff5f5" },
   hint: { fontSize: 12, color: "#999", marginTop: 6 },
-  storeList: { paddingVertical: 4 },
-  storeChip: {
-    alignItems: "center", borderWidth: 1.5, borderColor: "#e8e8e8",
-    borderRadius: 14, padding: 12, width: 90, backgroundColor: "#fafafa",
-    marginRight: 10, position: "relative",
-  },
-  storeChipActive: { borderColor: "#1a7a2e", borderWidth: 2, backgroundColor: "#f0faf4" },
-  storeLogo: { width: 48, height: 48, borderRadius: 8, marginBottom: 6, backgroundColor: "#fff" },
-  storeEmoji: { fontSize: 28, marginBottom: 6 },
-  storeName: { fontSize: 10, fontWeight: "700", color: "#666", textAlign: "center" },
-  storeNameActive: { color: "#1a7a2e" },
-  storeCheck: { position: "absolute", top: 6, right: 6, width: 16, height: 16, borderRadius: 8, backgroundColor: "#1a7a2e", alignItems: "center", justifyContent: "center" },
-  storeCheckText: { color: "#fff", fontSize: 9, fontWeight: "900" },
   chipRow: { flexDirection: "row", gap: 10 },
   timeChip: { paddingVertical: 10, paddingHorizontal: 18, borderRadius: 24, borderWidth: 1.5, borderColor: "#ddd", backgroundColor: "#fafafa" },
   timeChipActive: { backgroundColor: "#1a7a2e", borderColor: "#1a7a2e" },
@@ -576,27 +635,27 @@ const styles = StyleSheet.create({
   zoneText: { fontWeight: "700", fontSize: 13 },
   zoneTextValid: { color: "#16a34a" },
   zoneTextInvalid: { color: "#b91c1c" },
-  zoneInfoBox: { backgroundColor: "#f9fafb", borderRadius: 10, padding: 10, marginTop: 6 },
-  zoneInfoText: { color: "#555", fontSize: 13, lineHeight: 20 },
+  zoneInfoBox: { backgroundColor: "#fffbeb", borderRadius: 10, padding: 10, marginTop: 6, borderWidth: 1, borderColor: "#f5c518" },
+  zoneInfoText: { color: "#92400e", fontSize: 13, lineHeight: 22, fontWeight: "600" },
   paymentHint: { color: "#b45309", fontWeight: "700", fontSize: 13, marginBottom: 10 },
   paymentOptions: { flexDirection: "row", gap: 10, flexWrap: "wrap", marginBottom: 12 },
   paymentCard: {
     flex: 1, minWidth: 90, borderWidth: 1.5, borderColor: "#e8e8e8",
     borderRadius: 14, padding: 14, alignItems: "center", backgroundColor: "#fafafa", position: "relative",
   },
-  paymentCardActive: { borderColor: "#1a7a2e", borderWidth: 2, backgroundColor: "#f0faf4" },
+  paymentCardActive: { borderColor: "#f5c518", borderWidth: 2, backgroundColor: "#fffbeb" },
   paymentCardIcon: { fontSize: 24, marginBottom: 6 },
   paymentCardText: { fontSize: 12, fontWeight: "700", color: "#555", textAlign: "center" },
   paymentCardTextActive: { color: "#1a7a2e" },
-  paymentCheck: { position: "absolute", top: 6, right: 6, width: 16, height: 16, borderRadius: 8, backgroundColor: "#1a7a2e", alignItems: "center", justifyContent: "center" },
-  paymentCheckText: { color: "#fff", fontSize: 9, fontWeight: "900" },
+  paymentCheck: { position: "absolute", top: 6, right: 6, width: 16, height: 16, borderRadius: 8, backgroundColor: "#f5c518", alignItems: "center", justifyContent: "center" },
+  paymentCheckText: { color: "#111", fontSize: 9, fontWeight: "900" },
   webNote: { backgroundColor: "#f0f9ff", borderRadius: 10, padding: 12 },
   webNoteText: { color: "#0369a1", fontSize: 13, fontWeight: "600" },
-  interacBox: { backgroundColor: "#fffbeb", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "#fcd34d", gap: 8, marginTop: 4 },
+  interacBox: { backgroundColor: "#fffbeb", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "#f5c518", gap: 8, marginTop: 4 },
   interacTitle: { fontSize: 14, fontWeight: "900", color: "#92400e" },
   interacText: { fontSize: 14, color: "#78350f" },
   interacBold: { fontWeight: "900", color: "#111" },
-  interacEmailBox: { backgroundColor: "#fff", borderRadius: 8, padding: 10, borderWidth: 1, borderColor: "#fcd34d", alignItems: "center" },
+  interacEmailBox: { backgroundColor: "#fff", borderRadius: 8, padding: 10, borderWidth: 1, borderColor: "#f5c518", alignItems: "center" },
   interacEmail: { fontSize: 15, fontWeight: "900", color: "#1a7a2e" },
   interacNote: { fontSize: 12, color: "#92400e", lineHeight: 18 },
   interacConfirmRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 },
@@ -604,17 +663,21 @@ const styles = StyleSheet.create({
   checkboxActive: { backgroundColor: "#1a7a2e", borderColor: "#1a7a2e" },
   checkmark: { color: "#fff", fontWeight: "900", fontSize: 13 },
   interacConfirmText: { flex: 1, fontSize: 13, color: "#333", fontWeight: "600" },
-  selectedStoreBadge: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f0faf4", borderRadius: 10, padding: 10, marginBottom: 12 },
-  summaryStoreLogo: { width: 28, height: 28, borderRadius: 4 },
-  selectedStoreName: { fontWeight: "800", color: "#1a7a2e", fontSize: 13 },
   summaryRows: { gap: 8 },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   summaryLabel: { fontSize: 14, color: "#666", fontWeight: "600" },
   summaryValue: { fontSize: 14, color: "#111", fontWeight: "700" },
   freeNote: { fontSize: 12, color: "#1a7a2e", fontWeight: "700" },
+  serviceFeeNote: { backgroundColor: "#f9fafb", borderRadius: 8, padding: 6 },
+  serviceFeeNoteText: { fontSize: 11, color: "#999", fontWeight: "500" },
   totalRow: { borderTopWidth: 1, borderTopColor: "#eee", paddingTop: 10, marginTop: 4 },
   totalLabel: { fontSize: 17, fontWeight: "900", color: "#111" },
   totalValue: { fontSize: 17, fontWeight: "900", color: "#1a7a2e" },
+  priceDisclaimer: {
+    backgroundColor: "#fffbeb", borderRadius: 10, padding: 10, marginTop: 10,
+    borderWidth: 1, borderColor: "#f5c518",
+  },
+  priceDisclaimerText: { fontSize: 11, color: "#92400e", fontWeight: "600", textAlign: "center", lineHeight: 16 },
   footer: { marginHorizontal: 16, marginTop: 16, gap: 10 },
   placeBtn: {
     backgroundColor: "#1a7a2e", borderRadius: 16, paddingVertical: 18,
@@ -627,17 +690,19 @@ const styles = StyleSheet.create({
   backFooterBtn: { alignItems: "center", paddingVertical: 12 },
   backFooterText: { color: "#666", fontWeight: "700", fontSize: 14 },
   successContainer: { flex: 1, backgroundColor: "#f4f7f5", alignItems: "center", justifyContent: "center", padding: 32, gap: 14 },
-  successIconWrap: { width: 100, height: 100, borderRadius: 50, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 12, elevation: 4 },
+  successIconWrap: { width: 100, height: 100, borderRadius: 50, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 12, elevation: 4, borderWidth: 3, borderColor: "#f5c518" },
   successEmoji: { fontSize: 52 },
   successTitle: { fontSize: 28, fontWeight: "900", color: "#111" },
   successSub: { fontSize: 15, color: "#666", textAlign: "center", fontWeight: "500" },
-  successOrderBox: { backgroundColor: "#fff", borderRadius: 12, padding: 16, alignItems: "center", width: "100%", borderWidth: 1, borderColor: "#e8e8e8" },
+  successOrderBox: { backgroundColor: "#fff", borderRadius: 12, padding: 16, alignItems: "center", width: "100%", borderWidth: 1, borderColor: "#f5c518" },
   successOrderLabel: { fontSize: 12, color: "#999", fontWeight: "600", marginBottom: 4 },
   successOrderNum: { fontSize: 18, fontWeight: "900", color: "#1a7a2e" },
-  storeBadge: { backgroundColor: "#f0faf4", borderRadius: 10, padding: 10, flexDirection: "row", alignItems: "center", gap: 8, width: "100%" },
-  storeBadgeLogo: { width: 24, height: 24, borderRadius: 4 },
+  storeBadge: { backgroundColor: "#fffbeb", borderRadius: 10, padding: 10, flexDirection: "row", alignItems: "center", gap: 10, width: "100%", borderWidth: 1, borderColor: "#f5c518" },
+  storeBadgeLogo: { width: 36, height: 36, borderRadius: 8 },
+  storeBadgeEmoji: { fontSize: 28 },
   storeBadgeText: { color: "#1a7a2e", fontWeight: "800", fontSize: 14 },
-  interacReminder: { backgroundColor: "#fff8e1", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#f59e0b", width: "100%", gap: 4 },
+  storeBadgeCity: { color: "#666", fontSize: 12, fontWeight: "600" },
+  interacReminder: { backgroundColor: "#fff8e1", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#f5c518", width: "100%", gap: 4 },
   interacReminderTitle: { fontSize: 15, fontWeight: "900", color: "#92400e", marginBottom: 4 },
   interacReminderText: { fontSize: 14, color: "#78350f" },
   interacReminderSub: { fontSize: 12, color: "#92400e", marginTop: 4 },
