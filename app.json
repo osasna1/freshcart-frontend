@@ -7,5 +7,19 @@
     "eas": {
       "projectId": "434450f6-6d3d-46a7-a6ba-134a22ffd033"
     }
+  },
+  "expo": {
+    "ios": {
+      "bundleIdentifier": "com.freshcartcanada.app",
+      "buildNumber": "3",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "434450f6-6d3d-46a7-a6ba-134a22ffd033"
+      }
+    }
   }
 }
